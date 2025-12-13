@@ -48,6 +48,9 @@ async function main(): Promise<void> {
       console.log("   ℹ️  No USDC balance to sell");
     }
 
+    console.log("   ℹ️  Waiting 2 seconds before checking USD balance...");
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+
     // Step 3: Check USD balance and withdraw to Mercury
     console.log("\n💵 Checking USD balance...");
     const usdBalance = await getAssetBalance(client, "ZUSD");
@@ -55,7 +58,7 @@ async function main(): Promise<void> {
     console.log(`   USD Balance: $${usdBalance}`);
 
     // Calculate minimum withdrawal in base units ($10.00 = 100000 with 4 decimals)
-    const minimumWithdrawal = BigInt(config.minimumWithdrawalUSD * 10000);
+    const minimumWithdrawal = BigInt(config.minimumWithdrawalUSD * 10_000);
 
     if (usdBalanceBigInt >= minimumWithdrawal) {
       console.log(`\n🏦 Withdrawing $${usdBalance} to Mercury...`);
