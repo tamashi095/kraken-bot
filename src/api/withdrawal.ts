@@ -1,6 +1,6 @@
 /**
  * Withdrawal API
- * 
+ *
  * Functions for withdrawing assets from Kraken to external wallets or payment methods.
  */
 
@@ -22,7 +22,7 @@ import type {
  * ```typescript
  * // Get all withdrawal methods
  * const allMethods = await getWithdrawalMethods(client);
- * 
+ *
  * // Get withdrawal methods for a specific asset
  * const usdcMethods = await getWithdrawalMethods(client, "USDC");
  * ```
@@ -32,10 +32,9 @@ export async function getWithdrawalMethods(
   asset?: string
 ): Promise<WithdrawMethod[]> {
   const params = asset ? { asset } : {};
-  return await client.request<WithdrawMethod[]>(
-    "/0/private/WithdrawMethods",
-    { body: params }
-  );
+  return await client.request<WithdrawMethod[]>("/0/private/WithdrawMethods", {
+    body: params,
+  });
 }
 
 /**
@@ -92,6 +91,11 @@ export async function withdrawToMercury(
   amount: string,
   options: Omit<WithdrawParams, "asset" | "key" | "amount"> = {}
 ): Promise<WithdrawResponse> {
-  return await withdraw(client, "USD", "Mercury", amount, options);
+  return await withdraw(
+    client,
+    "USD",
+    "mercury-validator-revenue",
+    amount,
+    options
+  );
 }
-
