@@ -71,31 +71,3 @@ export async function withdraw(
     body: withdrawParams,
   });
 }
-
-/**
- * Withdraws USD to a Mercury account.
- *
- * @param client - KrakenClient instance
- * @param amount - Amount of USD to withdraw
- * @param options - Additional withdrawal options
- * @returns Promise resolving to withdrawal reference ID
- *
- * @example
- * ```typescript
- * const result = await withdrawToMercury(client, "1000.00");
- * console.log("Withdrawal initiated:", result.refid);
- * ```
- */
-export async function withdrawToMercury(
-  client: KrakenClient,
-  amount: string,
-  options: Omit<WithdrawParams, "asset" | "key" | "amount"> = {}
-): Promise<WithdrawResponse> {
-  return await withdraw(
-    client,
-    "USD",
-    "mercury-validator-revenue",
-    amount,
-    options
-  );
-}

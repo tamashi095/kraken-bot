@@ -4,13 +4,13 @@
  * This bot automatically:
  * 1. Checks USDC balance
  * 2. Sells all USDC for USD
- * 3. Withdraws USD to Mercury (if balance >= minimum threshold)
+ * 3. Withdraws USD to configured withdrawal key (if balance >= minimum threshold)
  */
 
 import { KrakenClient } from "./client/KrakenClient.ts";
 import { getAssetBalance } from "./api/balance.ts";
 import { sellUSDCToUSD } from "./api/trading.ts";
-import { withdrawToMercury } from "./api/withdrawal.ts";
+import { withdraw } from "./api/withdrawal.ts";
 import { parseDecimalToBigInt } from "./utils/bigint.ts";
 import { loadConfig, validateConfig } from "./config.ts";
 
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     console.log("   ℹ️  Waiting 2 seconds before checking USD balance...");
     await new Promise((resolve) => setTimeout(resolve, 2_000));
 
-    // Step 3: Check USD balance and withdraw to Mercury
+    // Step 3: Check USD balance and withdraw
     console.log("\n💵 Checking USD balance...");
     const usdBalance = await getAssetBalance(client, "ZUSD");
     const usdBalanceBigInt = parseDecimalToBigInt(usdBalance, 4);
@@ -61,8 +61,13 @@ async function main(): Promise<void> {
     const minimumWithdrawal = BigInt(config.minimumWithdrawalUSD * 10_000);
 
     if (usdBalanceBigInt >= minimumWithdrawal) {
-      console.log(`\n🏦 Withdrawing $${usdBalance} to Mercury...`);
-      const withdrawResult = await withdrawToMercury(client, usdBalance);
+      console.log(`\n🏦 Withdrawing $${usdBalance}...`);
+      const withdrawResult = await withdraw(
+        client,
+        "USD",
+        config.usdWithdrawalKey,
+        usdBalance
+      );
       console.log(`   ✅ Withdrawal initiated`);
       console.log(`   Reference ID: ${withdrawResult.refid}`);
     } else {

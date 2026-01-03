@@ -12,6 +12,7 @@ import type { KrakenClientConfig } from "./types/kraken.ts";
 export interface AppConfig {
   kraken: KrakenClientConfig;
   minimumWithdrawalUSD: number;
+  usdWithdrawalKey: string;
 }
 
 /**
@@ -38,6 +39,14 @@ export function loadConfig(): AppConfig {
     );
   }
 
+  const usdWithdrawalKey = Bun.env.USD_WITHDRAWAL_KEY;
+  if (!usdWithdrawalKey) {
+    throw new Error(
+      "USD_WITHDRAWAL_KEY environment variable is not set. " +
+      "Please set it in your .env file or environment."
+    );
+  }
+
   return {
     kraken: {
       apiKey,
@@ -45,6 +54,7 @@ export function loadConfig(): AppConfig {
       baseUrl: Bun.env.KRAKEN_API_URL || "https://api.kraken.com",
     },
     minimumWithdrawalUSD: Number(Bun.env.MINIMUM_WITHDRAWAL_USD || "10"),
+    usdWithdrawalKey,
   };
 }
 
@@ -61,6 +71,10 @@ export function validateConfig(config: AppConfig): void {
 
   if (config.minimumWithdrawalUSD < 0) {
     throw new Error("Minimum withdrawal amount must be positive");
+  }
+
+  if (!config.usdWithdrawalKey) {
+    throw new Error("USD withdrawal key is required");
   }
 }
 
