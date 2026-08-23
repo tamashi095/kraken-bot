@@ -1,214 +1,141 @@
-# Kraken Bot 🤖
+# Kraken Bot
 
-An automated trading bot for Kraken that converts USDC to USD and withdraws to Mercury.
+A small Go program that sells the account's available USDC for USD on Kraken,
+then withdraws the USD balance through Kraken's Funding API.
 
-## Features
+The project builds as one self-contained executable. It has no third-party Go
+modules and does not need Go, Bun, Node.js, or package files on the machine
+where the compiled binary runs.
 
-- ✅ **Automated Trading**: Automatically sells USDC for USD using market orders
-- ✅ **Smart Withdrawals**: Withdraws USD to Mercury when balance exceeds threshold
-- ✅ **Type-Safe**: Built with TypeScript for maximum reliability
-- ✅ **Modular Architecture**: Clean, maintainable code structure
-- ✅ **Secure**: Uses Kraken's HMAC-SHA512 authentication
-- ✅ **Fast**: Powered by Bun for optimal performance
+## Behavior
 
-## Prerequisites
+Each run performs one cycle:
 
-- [Bun](https://bun.sh/) (latest version)
-- Kraken account with API credentials
-- Mercury withdrawal key configured in Kraken
+1. Read the `USDC` account balance.
+2. If it is positive, place a market sell on `USDCUSD` for the full balance.
+3. Wait two seconds, then read the `ZUSD` balance.
+4. If the balance meets `MINIMUM_WITHDRAWAL_USD`, quote and pin the withdrawal
+   fee with `fee_included=true`.
+5. Withdraw through the configured funding method and saved address IDs. The
+   full balance is the total debit; the destination receives the balance minus
+   the quoted fee.
 
-## Installation
+Withdrawals use `GET /funding/v1/fees/{method_id}` followed by
+`POST /funding/v1/withdrawals`. There is no runtime fallback to Kraken's legacy
+funding endpoints.
 
-1. Clone the repository:
+## Funding API differences
 
-```bash
-git clone <repository-url>
-cd kraken-bot
-```
+| Area | Legacy funding API | Funding API used here |
+| --- | --- | --- |
+| Destination | Human-readable withdrawal key such as `Mercury` | Stable `method_id` and `address_id` |
+| Request | Form body with `nonce` in the body | JSON body with nonce in `API-Nonce` |
+| Signature | Signs the URI path and encoded form body | Signs the URI path including its query string and the exact JSON body |
+| Fees | Current fee applied during submission | Fee quoted first and pinned with a five-minute token |
+| Result | A reference ID | Withdrawal ID plus net, gross, fee, and optional approval ID |
 
-2. Install dependencies:
+The API key and base64 secret remain the same. Kraken describes the newer API's
+main benefits as stable IDs, reusable address scopes, fee pinning, and simpler
+read-only permissions. See the [Funding API guide](https://docs.kraken.com/exchange/guides/rest/funding).
 
-```bash
-bun install
-```
+## Requirements
 
-3. Copy the example environment file and configure your credentials:
+- Go 1.22 or newer to build from source
+- A Kraken API key with these permissions:
+  - Funds permissions — Query
+  - Orders and trades — Create & modify orders
+  - Funds permissions — Withdraw
+- A compatible USD funding method and saved fiat withdrawal address
 
-```bash
+## Configure
+
+Copy the example and edit it:
+
+```sh
 cp .env.example .env
 ```
 
-4. Edit `.env` and add your Kraken API credentials:
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `KRAKEN_PUBLIC_KEY` | Yes | — | Kraken public API key |
+| `KRAKEN_SECRET_KEY` | Yes | — | Base64-encoded Kraken private API key |
+| `USD_FUNDING_METHOD_ID` | Yes | — | Stable UUID for the USD withdrawal method |
+| `USD_FUNDING_ADDRESS_ID` | Yes | — | Stable ID of the saved destination address |
+| `KRAKEN_API_URL` | No | `https://api.kraken.com` | Kraken API base URL |
+| `MINIMUM_WITHDRAWAL_USD` | No | `10` | Minimum USD balance, with at most four decimal places |
 
-```env
-KRAKEN_PUBLIC_KEY=your_public_api_key_here
-KRAKEN_SECRET_KEY=your_secret_api_key_here
+The binary reads `.env` from its working directory. Values already present in
+the process environment take precedence over `.env`.
+
+### Find the funding IDs
+
+1. Select the USD withdrawal route with
+   [`GET /funding/v1/methods/withdraw`](https://docs.kraken.com/api-reference/funding-beta/list-funding-methods)
+   and record its `method_id`.
+2. Add the fiat destination in the Kraken UI if it is not already saved. Kraken
+   currently requires fiat addresses to be managed through the UI.
+3. Obtain the destination's `address_id` and confirm it is compatible with the
+   selected method. The [Funding guide](https://docs.kraken.com/exchange/guides/rest/funding)
+   explains address scopes and ID discovery.
+
+The old `USD_WITHDRAWAL_KEY=Mercury` value cannot be translated locally because
+the new API requires Kraken-issued IDs. Startup fails with a migration hint if
+only that legacy variable is present.
+
+## Build and run
+
+```sh
+make build
+./dist/kraken-bot
 ```
 
-## Configuration
+The equivalent command without Make is:
 
-### Environment Variables
-
-| Variable                 | Required | Default                  | Description                                 |
-| ------------------------ | -------- | ------------------------ | ------------------------------------------- |
-| `KRAKEN_PUBLIC_KEY`      | Yes      | -                        | Your Kraken API public key                  |
-| `KRAKEN_SECRET_KEY`      | Yes      | -                        | Your Kraken API secret key                  |
-| `KRAKEN_API_URL`         | No       | `https://api.kraken.com` | Kraken API base URL                         |
-| `MINIMUM_WITHDRAWAL_USD` | No       | `10`                     | Minimum USD balance required for withdrawal |
-
-### Kraken API Permissions
-
-Your API key needs the following permissions:
-
-- ✅ **Query Funds** - To check account balance
-- ✅ **Create & Modify Orders** - To place sell orders
-- ✅ **Withdraw Funds** - To withdraw to Mercury
-
-## Usage
-
-### Run the bot
-
-```bash
-bun start
+```sh
+mkdir -p dist
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/kraken-bot ./cmd/kraken-bot
 ```
 
-### Development mode (with auto-reload)
+To build a Linux AMD64 binary from macOS or another platform:
 
-```bash
-bun dev
+```sh
+mkdir -p dist
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/kraken-bot-linux-amd64 ./cmd/kraken-bot
 ```
 
-### Type checking
+Copy only the resulting binary and its `.env` file to the target machine.
 
-```bash
-bun run type-check
+## Test
+
+```sh
+make test
 ```
 
-## Project Structure
+Tests use an in-memory HTTP transport and never contact Kraken or place orders.
+They cover exact decimal conversion, configuration loading, authenticated
+request signing, API payloads, errors, and the full bot workflow.
 
-```
-kraken-bot/
-├── src/
-│   ├── api/              # API endpoint modules
-│   │   ├── balance.ts    # Balance operations
-│   │   ├── trading.ts    # Trading operations
-│   │   └── withdrawal.ts # Withdrawal operations
-│   ├── client/           # HTTP client
-│   │   └── KrakenClient.ts
-│   ├── types/            # TypeScript types
-│   │   └── kraken.ts
-│   ├── utils/            # Utility functions
-│   │   ├── bigint.ts     # BigInt helpers
-│   │   └── crypto.ts     # Signature generation
-│   ├── config.ts         # Configuration management
-│   └── index.ts          # Main entry point
-├── .env.example          # Example environment file
-├── package.json
-├── tsconfig.json
-└── README.md
+## Project structure
+
+```text
+cmd/kraken-bot/       executable entry point
+internal/bot/         USDC sale and USD withdrawal workflow
+internal/config/      environment and .env loading
+internal/decimal/     exact fixed-point amount parsing
+internal/kraken/      authenticated Kraken REST client
 ```
 
-## How It Works
+## Operational notes
 
-1. **Check USDC Balance**: Queries your Kraken account for USDC balance
-2. **Sell USDC**: If balance > 0, places a market order to sell all USDC for USD
-3. **Check USD Balance**: Queries the updated USD balance
-4. **Withdraw to Mercury**: If USD balance ≥ minimum threshold, withdraws to Mercury
-
-## API Modules
-
-### Balance API
-
-```typescript
-import { getBalance, getAssetBalance } from "./api/balance.ts";
-
-// Get all balances
-const balances = await getBalance(client);
-
-// Get specific asset balance
-const usdcBalance = await getAssetBalance(client, "USDC");
-```
-
-### Trading API
-
-```typescript
-import { sellUSDCToUSD, placeOrder } from "./api/trading.ts";
-
-// Sell USDC for USD
-const result = await sellUSDCToUSD(client, "100.00");
-
-// Place custom order
-const order = await placeOrder(client, {
-  type: "buy",
-  ordertype: "market",
-  pair: "XBTUSD",
-  volume: "0.01",
-});
-```
-
-### Withdrawal API
-
-```typescript
-import { withdraw, withdrawToMercury } from "./api/withdrawal.ts";
-
-// Withdraw to Mercury
-const result = await withdrawToMercury(client, "1000.00");
-
-// Generic withdrawal
-const withdrawal = await withdraw(client, "USD", "MyBank", "500.00");
-```
-
-## Security
-
-- ✅ Never commit your `.env` file
-- ✅ Store API keys securely
-- ✅ Use API keys with minimal required permissions
-- ✅ Enable 2FA on your Kraken account
-- ✅ Regularly rotate your API keys
-
-## Error Handling
-
-The bot includes comprehensive error handling:
-
-- API connection errors
-- Authentication failures
-- Insufficient balance errors
-- Invalid order errors
-
-All errors are logged to the console with descriptive messages.
-
-## Development
-
-### Adding New Features
-
-1. Create new API modules in `src/api/`
-2. Add types to `src/types/kraken.ts`
-3. Update the main logic in `src/index.ts`
-
-### Testing
-
-Before running in production:
-
-1. Test with small amounts
-2. Use `validate: true` option for dry runs
-3. Monitor Kraken API rate limits
-
-## Troubleshooting
-
-### "KRAKEN_PUBLIC_KEY is not set"
-
-- Make sure `.env` file exists and contains your API credentials
-- Check that environment variables are properly formatted
-
-### "Invalid signature"
-
-- Verify your API secret is correct
-- Ensure system time is synchronized
-
-### "Insufficient funds"
-
-- Check your account balance on Kraken
-- Ensure you have enough funds to cover fees
+- Run only one process per Kraken API key. [Kraken requires a strictly increasing
+  nonce](https://docs.kraken.com/exchange/guides/rest/authentication); sharing a
+  key between processes can cause invalid-nonce errors.
+- The bot submits real market orders and real withdrawals. Test with small
+  balances and a dedicated, minimally privileged API key before production use.
+- Keep `.env` private. It is ignored by Git, and credentials are never logged.
+- Keep the host clock synchronized so nonce values remain valid.
+- Fee quotes expire after five minutes. The bot quotes immediately before
+  submission and does not reuse stored fee tokens.
 
 ## License
 
@@ -216,4 +143,5 @@ MIT
 
 ## Disclaimer
 
-This bot is provided as-is. Always test thoroughly before using with real funds. Trading cryptocurrencies carries risk. Use at your own discretion.
+This software is provided as-is. Trading and withdrawing funds carries risk;
+review and test it for your account before use.

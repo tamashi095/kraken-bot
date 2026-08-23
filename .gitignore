@@ -2,17 +2,17 @@
 .env
 .env.local
 
-# Bun
-node_modules/
-bun.lockb
+# Go build and test artifacts
+dist/
+kraken-bot
+coverage.out
 
-# TypeScript
-*.tsbuildinfo
+# Left over from pre-Go versions
+node_modules/
 
 # Logs
 logs/
 *.log
-npm-debug.log*
 
 # OS
 .DS_Store
@@ -28,7 +28,3 @@ Thumbs.db
 # Backup files
 *.old
 *.backup
-
-# Build artifacts
-dist/
-build/

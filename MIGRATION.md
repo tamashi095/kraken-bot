@@ -1,207 +1,70 @@
-# Migration Guide
+# Migration from Bun/TypeScript to Go
 
-## What Changed?
+The bot is now implemented in Go and builds to a single executable with no
+third-party modules or runtime dependency.
 
-The codebase has been refactored from a single `index.ts` file into a professional, modular structure. All functionality remains the same, but the code is now more maintainable, testable, and extensible.
+## What stayed the same
 
-## New Project Structure
+- One run checks USDC, sells all available USDC for USD, waits two seconds,
+  checks USD, and withdraws when the configured threshold is met.
+- The API key and base64 secret are unchanged.
+- Kraken authentication still uses an increasing nonce and HMAC-SHA512
+  `API-Sign` header, with the Funding API's new signing format for withdrawals.
+- `.env` is loaded automatically from the working directory.
 
-```
-kraken-bot/
-├── src/
-│   ├── api/                    # API endpoint modules (NEW)
-│   │   ├── balance.ts         # Balance operations
-│   │   ├── trading.ts         # Trading operations (sellUSDCToUSD, etc.)
-│   │   └── withdrawal.ts      # Withdrawal operations (withdrawToMercury, etc.)
-│   │
-│   ├── client/                 # HTTP client (NEW)
-│   │   └── KrakenClient.ts    # Main API client class
-│   │
-│   ├── types/                  # TypeScript types (NEW)
-│   │   └── kraken.ts          # All type definitions
-│   │
-│   ├── utils/                  # Utility functions (NEW)
-│   │   ├── bigint.ts          # BigInt parsing utilities
-│   │   └── crypto.ts          # Signature generation
-│   │
-│   ├── config.ts              # Configuration management (NEW)
-│   └── index.ts               # Main entry point (REFACTORED)
-│
-├── index.ts.old               # Your original file (BACKUP)
-├── .gitignore                 # Git ignore rules (NEW)
-├── README.md                  # Comprehensive documentation (UPDATED)
-├── package.json               # Updated with scripts (UPDATED)
-└── tsconfig.json              # Updated with paths (UPDATED)
-```
+## What changed
 
-## Key Improvements
+- `bun start` is replaced by `./dist/kraken-bot`.
+- `bun run type-check` is replaced by `go test ./...`.
+- TypeScript and Bun source, configuration, and lock files were removed.
+- Decimal amounts are parsed as exact integers. Invalid values and configured
+  thresholds with more than four decimal places now fail instead of being
+  rounded or truncated through floating-point arithmetic.
+- Legacy `USD_WITHDRAWAL_KEY` configuration was replaced by stable
+  `USD_FUNDING_METHOD_ID` and `USD_FUNDING_ADDRESS_ID` values.
+- Withdrawals now quote and pin their fee before submission and use
+  `fee_included=true`, making the requested balance the total debit.
+- Withdrawal responses now expose a withdrawal ID and any required approval ID.
+- Shutdown through `Ctrl-C` or `SIGTERM` now cancels an in-progress request or
+  settlement wait cleanly.
 
-### 1. **Modular Architecture**
-- Separated concerns into logical modules
-- Each file has a single, clear responsibility
-- Easy to find and modify specific functionality
+## Upgrade steps
 
-### 2. **Better Type Safety**
-- All types centralized in `src/types/kraken.ts`
-- Comprehensive interfaces for all API requests/responses
-- Better IDE autocomplete and error detection
+1. Build the binary:
 
-### 3. **Reusable API Functions**
-- Balance operations in `src/api/balance.ts`
-- Trading operations in `src/api/trading.ts`
-- Withdrawal operations in `src/api/withdrawal.ts`
-- Can now easily import and use these functions elsewhere
+   ```sh
+   make build
+   ```
 
-### 4. **Configuration Management**
-- Centralized config in `src/config.ts`
-- Better error messages for missing environment variables
-- Easy to add new configuration options
+2. Use Kraken's Funding API to choose the USD withdrawal `method_id`. Add the
+   fiat destination through the Kraken UI and obtain its `address_id`.
 
-### 5. **Utility Functions**
-- Crypto utilities separated into `src/utils/crypto.ts`
-- BigInt helpers in `src/utils/bigint.ts`
-- Reusable across the project
+3. Replace the legacy withdrawal key in `.env`:
 
-### 6. **Professional Documentation**
-- Comprehensive JSDoc comments throughout
-- Updated README with examples and guides
-- Clear code organization
+   ```env
+   KRAKEN_PUBLIC_KEY=...
+   KRAKEN_SECRET_KEY=...
+   USD_FUNDING_METHOD_ID=...
+   USD_FUNDING_ADDRESS_ID=...
+   ```
 
-## How to Use the New Structure
+4. Run the replacement from the repository root:
 
-### Running the Bot
+   ```sh
+   ./dist/kraken-bot
+   ```
 
-**Old way:**
-```bash
-bun run index.ts
-```
+For deployment, copy `dist/kraken-bot` and `.env`; the Bun runtime and project
+source files are no longer required.
 
-**New way:**
-```bash
-bun start          # Run the bot
-bun dev            # Run with auto-reload
-bun run type-check # Type check without running
-```
+## Endpoint migration
 
-### Importing Functions
+The withdrawal flow contains no fallback to `/0/private/Withdraw` or
+`/0/private/WithdrawMethods`. It uses:
 
-**Example: Using Balance API**
-```typescript
-import { KrakenClient } from "./client/KrakenClient.ts";
-import { getBalance, getAssetBalance } from "./api/balance.ts";
+1. `GET /funding/v1/fees/{method_id}` to quote and pin the fee.
+2. `POST /funding/v1/withdrawals` with the method ID, address ID, amount, and
+   quote token.
 
-const client = new KrakenClient({
-  apiKey: "your-key",
-  secret: "your-secret"
-});
-
-// Get all balances
-const balances = await getBalance(client);
-
-// Get specific asset
-const usdcBalance = await getAssetBalance(client, "USDC");
-```
-
-**Example: Using Trading API**
-```typescript
-import { sellUSDCToUSD, placeOrder } from "./api/trading.ts";
-
-// Sell USDC
-const result = await sellUSDCToUSD(client, "100.00");
-
-// Custom order
-const order = await placeOrder(client, {
-  type: "buy",
-  ordertype: "market",
-  pair: "XBTUSD",
-  volume: "0.01"
-});
-```
-
-**Example: Using Withdrawal API**
-```typescript
-import { withdrawToMercury, withdraw } from "./api/withdrawal.ts";
-
-// Withdraw to Mercury
-await withdrawToMercury(client, "1000.00");
-
-// Generic withdrawal
-await withdraw(client, "USD", "MyBank", "500.00");
-```
-
-## Breaking Changes
-
-### None! 🎉
-
-The bot's functionality remains exactly the same. It still:
-1. Checks USDC balance
-2. Sells USDC to USD
-3. Withdraws USD to Mercury
-
-The only difference is the internal code organization.
-
-## Configuration Changes
-
-### Environment Variables
-
-The environment variable names remain the same:
-- `KRAKEN_PUBLIC_KEY` - Your public API key
-- `KRAKEN_SECRET_KEY` - Your secret API key
-
-### New Optional Variables
-
-You can now optionally set:
-- `KRAKEN_API_URL` - Custom API URL (defaults to `https://api.kraken.com`)
-- `MINIMUM_WITHDRAWAL_USD` - Minimum withdrawal amount (defaults to `10`)
-
-## File Mapping
-
-Here's where everything moved:
-
-| Old Location | New Location | Description |
-|--------------|--------------|-------------|
-| `getKrakenSignature()` | `src/utils/crypto.ts` | Signature generation |
-| `KrakenClient` class | `src/client/KrakenClient.ts` | Main client |
-| `sellUSDCToUSD()` | `src/api/trading.ts` | Trading functions |
-| `withdrawToMercury()` | `src/api/withdrawal.ts` | Withdrawal functions |
-| `getWithdrawMethods()` | `src/api/withdrawal.ts` | Withdrawal methods |
-| `parseDecimalToBigInt()` | `src/utils/bigint.ts` | BigInt utilities |
-| Type interfaces | `src/types/kraken.ts` | All types |
-| Main logic | `src/index.ts` | Entry point |
-
-## Testing the Refactored Code
-
-1. Ensure your `.env` file is configured
-2. Run the bot: `bun start`
-3. Check that it works the same as before
-
-## Rollback (If Needed)
-
-If you need to rollback to the old version:
-
-```bash
-# Backup new structure
-mv src src.backup
-
-# Restore old file
-mv index.ts.old index.ts
-
-# Revert package.json
-git checkout package.json tsconfig.json
-```
-
-## Need Help?
-
-- Check the [README.md](./README.md) for comprehensive documentation
-- Review the JSDoc comments in each file
-- Examine the example code in this guide
-
-## Next Steps
-
-Now that you have a modular codebase, you can easily:
-- Add new trading strategies
-- Support more currency pairs
-- Add logging and monitoring
-- Write unit tests
-- Create additional bots using the same modules
-
+Balance and order operations remain on their current Spot REST endpoints;
+Kraken's Funding API only replaces funding operations.
