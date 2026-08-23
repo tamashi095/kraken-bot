@@ -36,8 +36,16 @@ third-party modules or runtime dependency.
    make build
    ```
 
-2. Use Kraken's Funding API to choose the USD withdrawal `method_id`. Add the
-   fiat destination through the Kraken UI and obtain its `address_id`.
+2. Use the built-in discovery commands to choose the USD withdrawal
+   `method_id` and obtain the compatible saved destination's `address_id`:
+
+   ```sh
+   ./dist/kraken-bot funding-methods withdraw
+   ./dist/kraken-bot funding-addresses METHOD_ID
+   ```
+
+   Add the fiat destination through the Kraken UI first if it is not already
+   saved.
 
 3. Replace the legacy withdrawal key in `.env`:
 

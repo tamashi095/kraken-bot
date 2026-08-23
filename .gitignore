@@ -4,7 +4,7 @@
 
 # Go build and test artifacts
 dist/
-kraken-bot
+/kraken-bot
 coverage.out
 
 # Left over from pre-Go versions

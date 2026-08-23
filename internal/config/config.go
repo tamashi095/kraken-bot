@@ -28,9 +28,7 @@ var (
 
 // Config contains validated runtime configuration.
 type Config struct {
-	APIKey                   string
-	Secret                   string
-	BaseURL                  string
+	KrakenConfig
 	MinimumWithdrawal        *big.Int
 	MinimumWithdrawalDisplay string
 	USDFundingMethodID       string
@@ -38,20 +36,22 @@ type Config struct {
 	SettlementDelay          time.Duration
 }
 
+// KrakenConfig contains the credentials and URL needed by read-only discovery
+// commands as well as the main bot.
+type KrakenConfig struct {
+	APIKey  string
+	Secret  string
+	BaseURL string
+}
+
 // Load reads dotenvPath without overriding existing environment variables,
 // then validates and returns the bot configuration.
 func Load(dotenvPath string) (Config, error) {
-	if dotenvPath != "" {
-		if err := loadDotEnv(dotenvPath); err != nil {
-			return Config{}, fmt.Errorf("load %s: %w", dotenvPath, err)
-		}
-	}
-
-	apiKey, err := required("KRAKEN_PUBLIC_KEY")
-	if err != nil {
+	if err := loadEnvironment(dotenvPath); err != nil {
 		return Config{}, err
 	}
-	secret, err := required("KRAKEN_SECRET_KEY")
+
+	krakenConfig, err := loadKrakenConfig()
 	if err != nil {
 		return Config{}, err
 	}
@@ -73,16 +73,6 @@ func Load(dotenvPath string) (Config, error) {
 		return Config{}, fmt.Errorf("USD_FUNDING_ADDRESS_ID is not a valid Kraken funding address ID")
 	}
 
-	baseURL := valueOrDefault("KRAKEN_API_URL", defaultBaseURL)
-	parsedURL, err := url.Parse(baseURL)
-	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-		return Config{}, fmt.Errorf("KRAKEN_API_URL must be an absolute HTTP(S) URL")
-	}
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return Config{}, fmt.Errorf("KRAKEN_API_URL must use http or https")
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-
 	minimumDisplay := valueOrDefault("MINIMUM_WITHDRAWAL_USD", defaultMinimumWithdrawal)
 	minimum, err := decimal.ParseUnits(minimumDisplay, 4)
 	if err != nil {
@@ -93,14 +83,57 @@ func Load(dotenvPath string) (Config, error) {
 	}
 
 	return Config{
-		APIKey:                   apiKey,
-		Secret:                   secret,
-		BaseURL:                  baseURL,
+		KrakenConfig:             krakenConfig,
 		MinimumWithdrawal:        minimum,
 		MinimumWithdrawalDisplay: minimumDisplay,
 		USDFundingMethodID:       fundingMethodID,
 		USDFundingAddressID:      fundingAddressID,
 		SettlementDelay:          2 * time.Second,
+	}, nil
+}
+
+// LoadKraken loads only API credentials and the base URL. It intentionally does
+// not require withdrawal IDs so it can be used to discover them.
+func LoadKraken(dotenvPath string) (KrakenConfig, error) {
+	if err := loadEnvironment(dotenvPath); err != nil {
+		return KrakenConfig{}, err
+	}
+	return loadKrakenConfig()
+}
+
+func loadEnvironment(dotenvPath string) error {
+	if dotenvPath == "" {
+		return nil
+	}
+	if err := loadDotEnv(dotenvPath); err != nil {
+		return fmt.Errorf("load %s: %w", dotenvPath, err)
+	}
+	return nil
+}
+
+func loadKrakenConfig() (KrakenConfig, error) {
+	apiKey, err := required("KRAKEN_PUBLIC_KEY")
+	if err != nil {
+		return KrakenConfig{}, err
+	}
+	secret, err := required("KRAKEN_SECRET_KEY")
+	if err != nil {
+		return KrakenConfig{}, err
+	}
+
+	baseURL := valueOrDefault("KRAKEN_API_URL", defaultBaseURL)
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return KrakenConfig{}, fmt.Errorf("KRAKEN_API_URL must be an absolute HTTP(S) URL")
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return KrakenConfig{}, fmt.Errorf("KRAKEN_API_URL must use http or https")
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	return KrakenConfig{
+		APIKey:  apiKey,
+		Secret:  secret,
+		BaseURL: baseURL,
 	}, nil
 }
 

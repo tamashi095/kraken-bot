@@ -12,6 +12,8 @@ const (
 	balancePath            = "/0/private/Balance"
 	addOrderPath           = "/0/private/AddOrder"
 	fundingFeesBasePath    = "/funding/v1/fees/"
+	fundingMethodsBasePath = "/funding/v1/methods/"
+	fundingAddressesPath   = "/funding/v1/addresses"
 	fundingWithdrawalsPath = "/funding/v1/withdrawals"
 )
 
@@ -67,6 +69,38 @@ type FundingAssetAmount struct {
 // FundingAmount is the nested amount shape returned by withdrawal creation.
 type FundingAmount struct {
 	AssetAmount FundingAssetAmount `json:"asset_amount"`
+}
+
+// FundingNetwork identifies the network attached to a funding method.
+type FundingNetwork struct {
+	NetworkID   string `json:"network_id"`
+	NetworkName string `json:"network_name"`
+}
+
+// FundingMethod is one deposit or withdrawal route returned by Kraken.
+type FundingMethod struct {
+	Asset         FundingAsset    `json:"asset"`
+	MethodID      string          `json:"method_id"`
+	MethodName    string          `json:"method_name"`
+	MinimumAmount string          `json:"minimum_amount"`
+	Network       *FundingNetwork `json:"network,omitempty"`
+}
+
+// FundingAddressScope describes where a saved address can be used.
+type FundingAddressScope struct {
+	MethodID       string `json:"method_id,omitempty"`
+	NetworkID      string `json:"network_id,omitempty"`
+	NetworkGroupID string `json:"network_group_id,omitempty"`
+}
+
+// FundingAddress is a saved withdrawal destination. Address details are
+// intentionally omitted so discovery output does not expose account data.
+type FundingAddress struct {
+	AddressID   string              `json:"address_id"`
+	Scope       FundingAddressScope `json:"scope"`
+	Name        string              `json:"name,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Verified    bool                `json:"verified"`
 }
 
 // FundingFeeQuote pins the fee rate for a subsequent withdrawal.
@@ -174,6 +208,68 @@ func (client *Client) BuyUSDCWithUSD(ctx context.Context, volume string) (AddOrd
 		Pair:      "USDCUSD",
 		Volume:    volume,
 	})
+}
+
+// ListFundingMethods returns every funding method for deposit or withdrawal,
+// following Kraken's cursor pagination automatically.
+func (client *Client) ListFundingMethods(ctx context.Context, direction string) ([]FundingMethod, error) {
+	if direction != "deposit" && direction != "withdraw" {
+		return nil, fmt.Errorf("funding direction must be deposit or withdraw")
+	}
+	path := fundingMethodsBasePath + direction
+	query := url.Values{"limit": {"500"}}
+	seenCursors := make(map[string]struct{})
+	var methods []FundingMethod
+	for {
+		var page struct {
+			Methods    []FundingMethod `json:"methods"`
+			NextCursor string          `json:"next_cursor,omitempty"`
+		}
+		if err := client.fundingRequest(ctx, http.MethodGet, path, query, nil, &page); err != nil {
+			return nil, err
+		}
+		methods = append(methods, page.Methods...)
+		if page.NextCursor == "" {
+			return methods, nil
+		}
+		if _, exists := seenCursors[page.NextCursor]; exists {
+			return nil, fmt.Errorf("Kraken Funding API repeated methods cursor %q", page.NextCursor)
+		}
+		seenCursors[page.NextCursor] = struct{}{}
+		query = url.Values{"cursor": {page.NextCursor}}
+	}
+}
+
+// ListFundingAddresses returns every saved address compatible with methodID,
+// following Kraken's cursor pagination automatically.
+func (client *Client) ListFundingAddresses(ctx context.Context, methodID string) ([]FundingAddress, error) {
+	if methodID == "" {
+		return nil, fmt.Errorf("funding method ID is required")
+	}
+	query := url.Values{
+		"limit":            {"500"},
+		"scope[method_id]": {methodID},
+	}
+	seenCursors := make(map[string]struct{})
+	var addresses []FundingAddress
+	for {
+		var page struct {
+			Addresses  []FundingAddress `json:"addresses"`
+			NextCursor string           `json:"next_cursor,omitempty"`
+		}
+		if err := client.fundingRequest(ctx, http.MethodGet, fundingAddressesPath, query, nil, &page); err != nil {
+			return nil, err
+		}
+		addresses = append(addresses, page.Addresses...)
+		if page.NextCursor == "" {
+			return addresses, nil
+		}
+		if _, exists := seenCursors[page.NextCursor]; exists {
+			return nil, fmt.Errorf("Kraken Funding API repeated addresses cursor %q", page.NextCursor)
+		}
+		seenCursors[page.NextCursor] = struct{}{}
+		query = url.Values{"cursor": {page.NextCursor}}
+	}
 }
 
 // QuoteFundingWithdrawalFee calculates and pins the fee for a withdrawal whose

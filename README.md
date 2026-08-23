@@ -69,14 +69,30 @@ the process environment take precedence over `.env`.
 
 ### Find the funding IDs
 
-1. Select the USD withdrawal route with
-   [`GET /funding/v1/methods/withdraw`](https://docs.kraken.com/api-reference/funding-beta/list-funding-methods)
-   and record its `method_id`.
-2. Add the fiat destination in the Kraken UI if it is not already saved. Kraken
-   currently requires fiat addresses to be managed through the UI.
-3. Obtain the destination's `address_id` and confirm it is compatible with the
-   selected method. The [Funding guide](https://docs.kraken.com/exchange/guides/rest/funding)
-   explains address scopes and ID discovery.
+The discovery commands require only `KRAKEN_PUBLIC_KEY` and
+`KRAKEN_SECRET_KEY`; the funding IDs do not need to be configured yet.
+
+```sh
+# List every deposit and withdrawal method.
+./dist/kraken-bot funding-methods
+
+# List only withdrawal methods, then inspect the USD rows.
+./dist/kraken-bot funding-methods withdraw
+
+# List saved destinations compatible with the selected method.
+./dist/kraken-bot funding-addresses METHOD_ID
+```
+
+When the credentials are stored in Doppler, prefix the commands with
+`doppler run --`. Record the USD method's `METHOD_ID`, then find the intended
+verified destination and record its `ADDRESS_ID`. The commands omit the actual
+destination address and banking details from their output.
+
+These commands use Kraken's
+[`GET /funding/v1/methods/{direction}`](https://docs.kraken.com/api-reference/funding-beta/list-funding-methods)
+and [`GET /funding/v1/addresses`](https://docs.kraken.com/api-reference/funding-beta/list-funding-addresses)
+endpoints and follow cursor pagination automatically. Add or edit fiat
+destinations in the Kraken UI before running address discovery if necessary.
 
 The old `USD_WITHDRAWAL_KEY=Mercury` value cannot be translated locally because
 the new API requires Kraken-issued IDs. Startup fails with a migration hint if
@@ -87,6 +103,7 @@ only that legacy variable is present.
 ```sh
 make build
 ./dist/kraken-bot
+./dist/kraken-bot help
 ```
 
 The equivalent command without Make is:

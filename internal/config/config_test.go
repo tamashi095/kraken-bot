@@ -58,6 +58,21 @@ func TestEnvironmentTakesPrecedenceOverDotEnv(t *testing.T) {
 	}
 }
 
+func TestLoadKrakenDoesNotRequireFundingIDs(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("KRAKEN_PUBLIC_KEY", "public")
+	t.Setenv("KRAKEN_SECRET_KEY", "c2VjcmV0")
+	t.Setenv("KRAKEN_API_URL", "https://example.test/")
+
+	cfg, err := LoadKraken("")
+	if err != nil {
+		t.Fatalf("LoadKraken() error = %v", err)
+	}
+	if cfg.APIKey != "public" || cfg.Secret != "c2VjcmV0" || cfg.BaseURL != "https://example.test" {
+		t.Fatalf("LoadKraken() = %#v", cfg)
+	}
+}
+
 func TestLoadRejectsInvalidMinimum(t *testing.T) {
 	clearConfigEnvironment(t)
 	t.Setenv("KRAKEN_PUBLIC_KEY", "public")

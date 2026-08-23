@@ -187,6 +187,65 @@ func TestClientWorkflowRequests(t *testing.T) {
 	}
 }
 
+func TestListFundingMethodsAndAddressesFollowsPagination(t *testing.T) {
+	t.Parallel()
+
+	methodID := "d4ec4d52-b159-428e-ba64-f45455a978a1"
+	requestNumber := 0
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requestNumber++
+		query := request.URL.Query()
+		var responseBody string
+		switch {
+		case request.URL.Path == fundingMethodsBasePath+"withdraw" && query.Get("cursor") == "":
+			if query.Get("limit") != "500" || len(query) != 1 {
+				t.Errorf("first methods query = %v", query)
+			}
+			responseBody = `{"methods":[{"asset":{"class":"currency","name":"USD"},"method_id":"d4ec4d52-b159-428e-ba64-f45455a978a1","method_name":"ACH","minimum_amount":"1.00"}],"next_cursor":"methods-next"}`
+		case request.URL.Path == fundingMethodsBasePath+"withdraw" && query.Get("cursor") == "methods-next":
+			if len(query) != 1 {
+				t.Errorf("next methods query = %v", query)
+			}
+			responseBody = `{"methods":[{"asset":{"class":"currency","name":"USD"},"method_id":"72ff4244-0c51-4e42-bf8d-3cf6900c61e1","method_name":"Wire","minimum_amount":"20.00"}]}`
+		case request.URL.Path == fundingAddressesPath && query.Get("cursor") == "":
+			if query.Get("limit") != "500" || query.Get("scope[method_id]") != methodID || len(query) != 2 {
+				t.Errorf("first addresses query = %v", query)
+			}
+			responseBody = `{"addresses":[{"address_id":"ABR6SXP-SF6CY-VJMONY","scope":{"method_id":"d4ec4d52-b159-428e-ba64-f45455a978a1"},"name":"Example Bank","verified":true}],"next_cursor":"addresses-next"}`
+		case request.URL.Path == fundingAddressesPath && query.Get("cursor") == "addresses-next":
+			if len(query) != 1 {
+				t.Errorf("next addresses query = %v", query)
+			}
+			responseBody = `{"addresses":[]}`
+		default:
+			return testResponse(request, http.StatusNotFound, "not found"), nil
+		}
+		return testResponse(request, http.StatusOK, responseBody), nil
+	})
+
+	client, err := NewClient(ClientConfig{
+		APIKey:     "public",
+		Secret:     base64.StdEncoding.EncodeToString([]byte("secret")),
+		BaseURL:    "https://example.test",
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	methods, err := client.ListFundingMethods(context.Background(), "withdraw")
+	if err != nil || len(methods) != 2 || methods[0].MethodName != "ACH" || methods[1].MethodName != "Wire" {
+		t.Fatalf("ListFundingMethods() = %#v, %v", methods, err)
+	}
+	addresses, err := client.ListFundingAddresses(context.Background(), methodID)
+	if err != nil || len(addresses) != 1 || addresses[0].AddressID != "ABR6SXP-SF6CY-VJMONY" || !addresses[0].Verified {
+		t.Fatalf("ListFundingAddresses() = %#v, %v", addresses, err)
+	}
+	if requestNumber != 4 {
+		t.Fatalf("request count = %d, want 4", requestNumber)
+	}
+}
+
 func TestPrivateRequestReturnsKrakenError(t *testing.T) {
 	t.Parallel()
 
